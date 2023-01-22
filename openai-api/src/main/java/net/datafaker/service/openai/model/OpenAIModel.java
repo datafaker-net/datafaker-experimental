@@ -3,8 +3,14 @@ package net.datafaker.service.openai.model;
 public enum OpenAIModel {
 
     /**
-     * Most capable model in the GPT-3 series. Can perform any task the other GPT-3 models can,
-     * often with less context. It can process up to 4,000 tokens per request.
+     * Improved model in the GPT-3 series. Handles more complex instructions, better at long form generatioon.
+     * Can perform any task the other GPT-3 models can, often with less context.
+     */
+    TEXT_DAVINCI_003("text-davinci-003"),
+
+    /**
+     * Very capable model in the GPT-3 series. Can perform any task the other GPT-3 models can,
+     * often with less context.
      */
     TEXT_DAVINCI_002("text-davinci-002"),
 
@@ -26,7 +32,7 @@ public enum OpenAIModel {
 
     /**
      * Most capable model in the Codex series, which can understand and generate code, including
-     * translating natural language to code. It can process up to 4,000 tokens per request.
+     * translating natural language to code.
      */
     CODE_DAVINCI_002("code-davinci-002"),
 

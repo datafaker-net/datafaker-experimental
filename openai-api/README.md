@@ -24,6 +24,6 @@ System.out.println("firstname: " + openAIFaker.name().firstName());
 
 ## Known issues and limitations
 
-* The generation is slow, since for every generation, we need to do an HTTP call. This is being worked on to improve
+* The generation is slow, since for every generation, we need to do an HTTP call. This is being worked on to improve -> **UPDATE** Items are now generated per 5 (default), and are cached.
 * Not all generators are currently being intercepted by Datafaker OpenAI module, so some of them still might be using the YAML files.
 * Be aware that you need to use an OpenAI API key to access the model. While currently the generation is free, in the future OpenAI most likely will charge for this model.

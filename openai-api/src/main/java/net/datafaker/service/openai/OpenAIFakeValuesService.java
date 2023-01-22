@@ -1,6 +1,8 @@
 package net.datafaker.service.openai;
 
+import com.google.common.collect.ArrayListMultimap;
 import com.google.gson.Gson;
+import net.datafaker.Faker;
 import net.datafaker.providers.base.AbstractProvider;
 import net.datafaker.providers.base.BaseFaker;
 import net.datafaker.providers.base.ProviderRegistration;
@@ -16,6 +18,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.List;
 import java.util.function.Supplier;
 
 public class OpenAIFakeValuesService extends FakeValuesService {
@@ -24,19 +27,39 @@ public class OpenAIFakeValuesService extends FakeValuesService {
     private static final String APPLICATION_JSON = "application/json";
 
     private final HttpClient httpClient = HttpClient.newBuilder()
-        .version(HttpClient.Version.HTTP_2)
-        .connectTimeout(Duration.ofSeconds(10))
-        .build();
+            .version(HttpClient.Version.HTTP_2)
+            .connectTimeout(Duration.ofSeconds(10))
+            .build();
 
     private final Gson gson = new Gson();
+
+    private final ArrayListMultimap<String, String> cache = ArrayListMultimap.create();
 
     private final String apiKey;
     private final String modelName;
     private final Integer maxTokens;
     private final Double temperature;
 
+    /**
+     * Keys are either the faker name + property (full:true), such as person + name, or only the property (full:false), such as "name".
+     * <p>
+     * Depending on your use case, one might provider better results than the other.
+     */
+    private boolean useFullKey = false;
+
+    /**
+     * Controls the amount of items to generate. These items are cached, so to speed up the process, set this to high amount,
+     * but the higher the amount, the higher the costs (don't forget to set the maxTokens to an appropriate amount too).
+     */
+    private int amountOfItemsToGenerate = 5;
+
+    /**
+     * Creates a new instance with sane defaults, works for most cases.
+     *
+     * @param apiKey The API key used for the OpenAI service.
+     */
     public OpenAIFakeValuesService(String apiKey) {
-        this(apiKey, OpenAIModel.TEXT_DAVINCI_002, 50, 0.5);
+        this(apiKey, OpenAIModel.TEXT_DAVINCI_003, 500, 0.5);
     }
 
     /**
@@ -65,10 +88,7 @@ public class OpenAIFakeValuesService extends FakeValuesService {
      *                    As the temperature approaches zero, the model will become deterministic and repetitive.
      */
     public OpenAIFakeValuesService(String apiKey, OpenAIModel model, Integer maxTokens, Double temperature) {
-        this.apiKey = apiKey;
-        this.modelName = model.getModelName();
-        this.maxTokens = maxTokens;
-        this.temperature = temperature;
+        this(apiKey, model.getModelName(), maxTokens, temperature);
     }
 
     @Override
@@ -78,66 +98,73 @@ public class OpenAIFakeValuesService extends FakeValuesService {
 
     @Override
     public String resolve(String key, AbstractProvider provider, FakerContext context) {
-        var prompt = "create a random " + context.getLocale().getDisplayLanguage() + " " + formatKey(key);
-        var apiRequest = new Request(modelName, prompt, maxTokens, temperature);
+        if (!cache.containsKey(key)) {
+            var prompt = createPrompt(key, context);
+            var apiRequest = new Request(modelName, prompt, maxTokens, temperature);
+            System.out.println("Using prompt: " + prompt);
 
-        System.out.println("Using prompt: " + prompt);
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(OPEN_API_COMPLETION_ENDPOINT))
+                    .header("Content-Type", APPLICATION_JSON)
+                    .header("Authorization", "Bearer " + apiKey)
+                    .POST(HttpRequest.BodyPublishers.ofString(gson.toJson(apiRequest)))
+                    .build();
 
-        HttpRequest request = HttpRequest.newBuilder()
-            .uri(URI.create(OPEN_API_COMPLETION_ENDPOINT))
-            .header("Content-Type", APPLICATION_JSON)
-            .header("Authorization", "Bearer " + apiKey)
-            .POST(HttpRequest.BodyPublishers.ofString(gson.toJson(apiRequest)))
-            .build();
+            try {
+                HttpResponse<String> httpResponse = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                Response jsonResponse = gson.fromJson(httpResponse.body(), Response.class);
 
-        try {
-            HttpResponse<String> httpResponse = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            Response jsonResponse = gson.fromJson(httpResponse.body(), Response.class);
+                if (jsonResponse.getChoices().isEmpty()) {
+                    return null;
+                } else {
+                    List<String> response = createResponse(jsonResponse.getChoices().get(0).getText());
 
-            if(jsonResponse.getChoices().isEmpty()) {
+                    // Cache response
+                    cache.putAll(key, response);
+                }
+            } catch (Exception e) {
                 return null;
-            } else {
-                return formatResponse(jsonResponse.getChoices().get(0).getText());
             }
-        } catch (Exception e) {
-            return null;
         }
+
+        var faker = new Faker();
+
+        List<String> strings = cache.get(key);
+        String value = faker.options().nextElement(strings);
+        cache.remove(key, value);
+        return value;
     }
 
-    private static String formatResponse(String response) {
+    private String createPrompt(String key, FakerContext context) {
+        var toJson = "Response should be a json object, with array field named \"values\"";
+
+        return "List " + amountOfItemsToGenerate + " " + context.getLocale().getDisplayLanguage() + " " + formatKey(key) + ". " + toJson + ".";
+    }
+
+    private List<String> createResponse(String json) {
         // Sometimes OpenAPI returns a list of comma or newline separated responses.
         // For now, let's ignore that and just return the first entry in the list.
 
-        String stripped = response.strip().replaceAll("\n", ",");
+        String stripped = json.strip().replaceAll("\n", "");
 
-        // Gett the first element in the comma separated string
-        if(stripped.contains(",")) {
-            stripped = stripped.substring(0, stripped.indexOf(","));
-        }
-
-        // Sometimes the results starts with 1., like:
-        // 1. "The Harvest"
-        // 1. Bossa Nova Baby
-        // 1. Blue Dream
-        if(stripped.matches("^1\\. .+$")) {
-            stripped = stripped.substring(2);
-        }
-
-        return stripped.trim();
+        return gson.fromJson(stripped, ValueList.class).getValues();
     }
 
-    private static String formatKey(String key) {
+    private String formatKey(String key) {
 
         String[] split = key.split("\\.");
 
-        var prefix =  split[0].replaceAll("_", " ");
-        var postfix =  split[1].replaceAll("_", " ");
+        var prefix = split[0].replaceAll("_", " ");
+        var postfix = split[1].replaceAll("_", " ");
 
-//        return splitCamelCase(prefix) + " " + splitCamelCase(postfix).replaceAll(" {2,}", " ");
-        return splitCamelCase(postfix).replaceAll(" {2,}", " ");
+        if (useFullKey) {
+            return prefix + " " + splitCamelCase(postfix).replaceAll(" {2,}", " ");
+        } else {
+            return splitCamelCase(postfix).replaceAll(" {2,}", " ");
+        }
     }
 
-    static String splitCamelCase(String s) {
+    private String splitCamelCase(String s) {
         return StringUtils.join(StringUtils.splitByCharacterTypeCamelCase(s), ' ');
     }
 
@@ -152,6 +179,25 @@ public class OpenAIFakeValuesService extends FakeValuesService {
         // TODO
         return super.resolveExpression(expression, current, root, context);
     }
+
+    public void setUseFullKey(boolean useFullKey) {
+        this.useFullKey = useFullKey;
+    }
+
+    public void setAmountOfItemsToGenerate(int amountOfItemsToGenerate) {
+        this.amountOfItemsToGenerate = amountOfItemsToGenerate;
+    }
 }
 
+class ValueList {
+    private List<String> values;
 
+    public List<String> getValues() {
+        return values;
+    }
+
+    @SuppressWarnings("unused")
+    public void setValues(List<String> values) {
+        this.values = values;
+    }
+}
