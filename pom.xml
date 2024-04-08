@@ -11,6 +11,7 @@
 
     <modules>
         <module>openai-api</module>
+        <module>ollama-api</module>
     </modules>
 
     <properties>
