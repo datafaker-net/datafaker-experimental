@@ -78,7 +78,6 @@ public class OllamaFakeValuesService extends FakeValuesService {
 
             try {
                 OllamaResult response = ollamaAPI.generate(modelName, prompt, new OptionsBuilder().build());
-                System.out.println(response.getResponse());
 
                 List<String> values = cleanResponse(response.getResponse());
 
