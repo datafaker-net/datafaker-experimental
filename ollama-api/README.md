@@ -1,6 +1,6 @@
 # Datafaker Ollama module
 
-This module provides access to the [Ollama Models](https://ollama.com/) using [Ollam4j](https://github.com/amithkoujalgi/ollama4j)
+This module provides access to the [Ollama Models](https://ollama.com/) using [Ollama4j](https://github.com/amithkoujalgi/ollama4j)
 
 This module is an add-on to [Datafaker](https://www.datafaker.net), and can be 
 used to augment or replace the normal data generation of Datafaker. 
